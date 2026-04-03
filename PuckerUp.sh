@@ -120,6 +120,44 @@ install_local_panel_files() {
     done
 }
 
+install_panel_files_from_dir() {
+    local source_dir="$1"
+    local file_name
+
+    mkdir -p "$INSTALL_DIR"
+
+    for file_name in "${PANEL_FILES[@]}"; do
+        if [[ "$file_name" == *.html ]]; then
+            install -m 0644 "$source_dir/$file_name" "$INSTALL_DIR/$file_name"
+        else
+            install -m 0755 "$source_dir/$file_name" "$INSTALL_DIR/$file_name"
+        fi
+    done
+}
+
+download_remote_panel_package() {
+    local temp_dir
+    local file_name
+    local source_url
+
+    temp_dir="$(mktemp -d)"
+    trap 'rm -rf "$temp_dir"' RETURN
+
+    for file_name in "${PANEL_FILES[@]}"; do
+        source_url="$PANEL_REPO_RAW_URL/$file_name"
+        echo "Downloading $file_name..."
+        wget -qO "$temp_dir/$file_name" "$source_url"
+
+        if [ ! -s "$temp_dir/$file_name" ]; then
+            echo -e "${RED}Error: Failed to download '$file_name' from $source_url${NC}"
+            echo -e "${RED}The configured package source is incomplete. Provide a full local project/app package or set SPEEDUP_REPO_RAW_URL to a package that contains all runtime files.${NC}"
+            exit 1
+        fi
+    done
+
+    install_panel_files_from_dir "$temp_dir"
+}
+
 generate_random_alnum() (
     set +o pipefail
     tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12
@@ -249,7 +287,10 @@ echo -e "${GREEN}Default config files created for servers 1-4.${NC}"
 
 print_heading "Downloading and Installing SpeedUP Admin Panel"
 
-if has_local_source_tree; then
+if has_local_panel_package; then
+    echo -e "${GREEN}Using local packaged panel files from $LOCAL_APP_DIR.${NC}"
+    install_local_panel_files
+elif has_local_source_tree; then
     if ! prepare_local_panel_package; then
         echo -e "${RED}Error: Local source checkout detected, but the packaged runtime files are incomplete and the local build did not produce a full app directory.${NC}"
         echo -e "${RED}Expected files: ${PANEL_FILES[*]}${NC}"
@@ -259,11 +300,7 @@ if has_local_source_tree; then
     echo -e "${GREEN}Using local packaged panel files from $LOCAL_APP_DIR.${NC}"
     install_local_panel_files
 else
-    mkdir -p "$INSTALL_DIR"
-
-    for file_name in "${PANEL_FILES[@]}"; do
-        download_panel_file "$file_name"
-    done
+    download_remote_panel_package
 fi
 
 chmod +x "$INSTALL_DIR/$MAIN_BINARY"
