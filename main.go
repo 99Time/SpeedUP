@@ -130,6 +130,7 @@ type loginAttempt struct {
 var (
 	loginAttempts = make(map[string]loginAttempt)
 	loginMutex    = &sync.Mutex{}
+	serverConfigMu = &sync.Mutex{}
 )
 
 const (
@@ -211,6 +212,118 @@ func loadServerDefinitions() ([]serverDefinition, error) {
 	})
 
 	return servers, nil
+}
+
+func cloneServerConfig(base ServerConfig) ServerConfig {
+	cloned := base
+	cloned.AdminSteamIds = append([]string(nil), base.AdminSteamIds...)
+	cloned.Mods = append([]Mod(nil), base.Mods...)
+	return cloned
+}
+
+func defaultServerConfig() ServerConfig {
+	return ServerConfig{
+		Name:                  "Puck Server 1",
+		MaxPlayers:            10,
+		Voip:                  false,
+		IsPublic:              true,
+		AdminSteamIds:         []string{},
+		ReloadBannedSteamIds:  true,
+		UsePuckBannedSteamIds: true,
+		PrintMetrics:          true,
+		KickTimeout:           1800,
+		SleepTimeout:          900,
+		JoinMidMatchDelay:     10,
+		TargetFrameRate:       380,
+		ServerTickRate:        360,
+		ClientTickRate:        360,
+		StartPaused:           false,
+		AllowVoting:           true,
+		PhaseDurationMap: PhaseDurationMap{
+			Warmup:     600,
+			FaceOff:    3,
+			Playing:    300,
+			BlueScore:  5,
+			RedScore:   5,
+			Replay:     10,
+			PeriodOver: 15,
+			GameOver:   15,
+		},
+		Mods: []Mod{
+			{ID: 3497097214, Enabled: true, ClientRequired: false},
+			{ID: 3497344177, Enabled: true, ClientRequired: false},
+			{ID: 3503065207, Enabled: true, ClientRequired: true},
+		},
+	}
+}
+
+func nextServerNumber(servers []serverDefinition) int {
+	if len(servers) == 0 {
+		return 1
+	}
+
+	lastServerNum, err := strconv.Atoi(servers[len(servers)-1].Number)
+	if err != nil {
+		return 1
+	}
+
+	return lastServerNum + 1
+}
+
+func nextServerPorts(servers []serverDefinition, candidateServerNum int) (int, int) {
+	usedPorts := make(map[int]bool, len(servers)*2)
+	for _, server := range servers {
+		if server.Config.Port > 0 {
+			usedPorts[server.Config.Port] = true
+		}
+		if server.Config.PingPort > 0 {
+			usedPorts[server.Config.PingPort] = true
+		}
+	}
+
+	port := 7777 + ((candidateServerNum - 1) * 2)
+	for usedPorts[port] || usedPorts[port+1] {
+		port += 2
+	}
+
+	return port, port + 1
+}
+
+func buildNewServerConfig(servers []serverDefinition, candidateServerNum int) ServerConfig {
+	config := defaultServerConfig()
+	if len(servers) > 0 {
+		config = cloneServerConfig(servers[len(servers)-1].Config)
+	}
+
+	port, pingPort := nextServerPorts(servers, candidateServerNum)
+	config.Name = fmt.Sprintf("Puck Server %d", candidateServerNum)
+	config.Port = port
+	config.PingPort = pingPort
+
+	if config.AdminSteamIds == nil {
+		config.AdminSteamIds = []string{}
+	}
+	if config.Mods == nil {
+		config.Mods = []Mod{}
+	}
+
+	return config
+}
+
+func writeServerConfig(configFile string, config ServerConfig) error {
+	if err := os.MkdirAll(filepath.Dir(configFile), 0755); err != nil {
+		return err
+	}
+
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(config); err != nil {
+		return err
+	}
+
+	return os.WriteFile(configFile, buffer.Bytes(), 0644)
 }
 
 func getServiceStatus(serverNum string) string {
@@ -628,18 +741,48 @@ func updateServerConfigHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	encoder.Encode(config)
-
-	if err := os.WriteFile(configFile, buffer.Bytes(), 0644); err != nil {
+	if err := writeServerConfig(configFile, config); err != nil {
 		http.Error(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Config saved successfully!"})
+}
+
+func createServerHandler(w http.ResponseWriter, r *http.Request) {
+	serverConfigMu.Lock()
+	defer serverConfigMu.Unlock()
+
+	servers, err := loadServerDefinitions()
+	if err != nil {
+		log.Printf("Failed to load existing server configs: %v", err)
+		http.Error(w, "Failed to inspect existing servers", http.StatusInternalServerError)
+		return
+	}
+
+	candidateServerNum := nextServerNumber(servers)
+	configFile := filepath.Join(configBasePath, fmt.Sprintf("server%d.json", candidateServerNum))
+	for {
+		if _, err := os.Stat(configFile); os.IsNotExist(err) {
+			break
+		}
+		candidateServerNum++
+		configFile = filepath.Join(configBasePath, fmt.Sprintf("server%d.json", candidateServerNum))
+	}
+
+	config := buildNewServerConfig(servers, candidateServerNum)
+	if err := writeServerConfig(configFile, config); err != nil {
+		log.Printf("Failed to create server config %s: %v", configFile, err)
+		http.Error(w, "Failed to create server config", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":   fmt.Sprintf("Server %d created successfully!", candidateServerNum),
+		"serverNum": candidateServerNum,
+		"config":    config,
+	})
 }
 
 func serverControlHandler(w http.ResponseWriter, r *http.Request) {
@@ -827,6 +970,7 @@ func main() {
 	api.HandleFunc("/status", statusHandler)
 	api.HandleFunc("/install", installHandler).Methods("POST")
 	api.HandleFunc("/players/mmr", playersMMRHandler).Methods("GET")
+	api.HandleFunc("/servers", createServerHandler).Methods("POST")
 	api.HandleFunc("/servers/status", serversStatusHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", getServerConfigHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", updateServerConfigHandler).Methods("POST")

@@ -108,8 +108,9 @@
                     <h2 class="text-2xl font-semibold text-slate-100">Server Controls</h2>
                     <p class="text-sm text-slate-400">Edit config, service state, and scheduled restarts for each detected server configuration.</p>
                 </div>
-                <div class="form-control w-full md:w-auto">
-                    <label class="cursor-pointer label gap-3 justify-start md:justify-end">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto md:justify-end">
+                    <button id="add-server-btn" class="btn btn-primary btn-sm">Add Server</button>
+                    <label class="cursor-pointer label gap-3 justify-start md:justify-end py-0">
                         <span class="label-text">Show all servers</span>
                         <input type="checkbox" class="toggle toggle-primary" id="show-all-servers-toggle" />
                     </label>
@@ -137,6 +138,7 @@
             const installBtn = document.getElementById('install-btn');
             const serverContainer = document.getElementById('server-container');
             const showAllServersToggle = document.getElementById('show-all-servers-toggle');
+            const addServerBtn = document.getElementById('add-server-btn');
             const statusIndicator = document.getElementById('status-indicator');
             const logoutBtn = document.getElementById('logout-btn');
 
@@ -171,6 +173,7 @@
             const api = {
                 checkStatus: () => requestJSON(`${API_BASE_URL}/status`),
                 installServer: () => requestJSON(`${API_BASE_URL}/install`, { method: 'POST' }),
+                createServer: () => requestJSON(`${API_BASE_URL}/servers`, { method: 'POST' }),
                 getServersStatus: () => requestJSON(`${API_BASE_URL}/servers/status`),
                 controlServer: (serverNum, action) => requestJSON(`${API_BASE_URL}/server/${serverNum}/control`, {
                     method: 'POST',
@@ -473,6 +476,28 @@
             });
 
             showAllServersToggle.addEventListener('change', updateExtraServerVisibility);
+
+            addServerBtn.addEventListener('click', async () => {
+                addServerBtn.classList.add('loading');
+                try {
+                    const data = await api.createServer();
+                    showAllServersToggle.checked = true;
+                    await buildServerList();
+                    updateExtraServerVisibility();
+
+                    const newServerNum = Number.parseInt(data.serverNum, 10);
+                    const newServerElement = document.getElementById(`server-${newServerNum}`);
+                    if (newServerElement) {
+                        newServerElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+
+                    notify(data.message);
+                } catch (error) {
+                    notify(`Error creating server: ${error.message}`);
+                } finally {
+                    addServerBtn.classList.remove('loading');
+                }
+            });
 
             installBtn.addEventListener('click', async () => {
                 installBtn.classList.add('loading');
