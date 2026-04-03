@@ -44,7 +44,11 @@ download_panel_file() {
     local destination="$INSTALL_DIR/$file_name"
     local source_url="$PANEL_REPO_RAW_URL/$file_name"
 
-    wget -qO "$destination" "$source_url"
+    if ! wget -qO "$destination" "$source_url"; then
+        rm -f "$destination"
+        echo -e "${RED}Error: Failed to download '$file_name' from $source_url${NC}"
+        exit 1
+    fi
 
     if [ ! -s "$destination" ]; then
         echo -e "${RED}Error: Failed to download '$file_name' from $source_url${NC}"
@@ -146,7 +150,12 @@ download_remote_panel_package() {
     for file_name in "${PANEL_FILES[@]}"; do
         source_url="$PANEL_REPO_RAW_URL/$file_name"
         echo "Downloading $file_name..."
-        wget -qO "$temp_dir/$file_name" "$source_url"
+        if ! wget -qO "$temp_dir/$file_name" "$source_url"; then
+            rm -f "$temp_dir/$file_name"
+            echo -e "${RED}Error: Failed to download '$file_name' from $source_url${NC}"
+            echo -e "${RED}The configured package source is incomplete. Provide a full local project/app package or set SPEEDUP_REPO_RAW_URL to a package that contains all runtime files.${NC}"
+            exit 1
+        fi
 
         if [ ! -s "$temp_dir/$file_name" ]; then
             echo -e "${RED}Error: Failed to download '$file_name' from $source_url${NC}"
@@ -299,6 +308,11 @@ elif has_local_source_tree; then
 
     echo -e "${GREEN}Using local packaged panel files from $LOCAL_APP_DIR.${NC}"
     install_local_panel_files
+elif [ -d "$LOCAL_APP_DIR" ]; then
+    echo -e "${RED}Error: Found a local app directory at $LOCAL_APP_DIR, but it is incomplete.${NC}"
+    echo -e "${RED}Expected runtime files: ${PANEL_FILES[*]}${NC}"
+    echo -e "${RED}Run ./build.sh first or upload a complete packaged app directory with both binaries included.${NC}"
+    exit 1
 else
     download_remote_panel_package
 fi
