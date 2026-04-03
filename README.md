@@ -6,11 +6,11 @@ Note, only tested with Ubuntu 24.04. Workarounds are needed for Debian 13 to ins
 
 Also, if you already have server configs under /srv/puckserver, please back these up, the script will overwrite them. I did this to get new hosters started with a usable config. You can always comment these lines if you want - the panel will handle existing configs.
 
--Grab the script with `wget https://raw.githubusercontent.com/pogsee/PuckerUp/main/PuckerUp.sh`
+-Grab the script with `wget https://raw.githubusercontent.com/99Time/SpeedUP/refs/heads/main/SpeedUp.sh`
 
--Make it executable with `chmod +x PuckerUp.sh`
+-Make it executable with `chmod +x SpeedUp.sh`
 
--Run the script with `./PuckerUp.sh`
+-Run the script with `./SpeedUp.sh`
 
 The script will present you with a URL to access, and your passwords. Save the SpeedUP password as it will not be shown again.
 
