@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="night">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedUP - Live Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@2.51.6/dist/full.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at top left, rgba(14, 165, 233, 0.18), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.12), transparent 24%),
+                #020617;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            box-shadow: 0 18px 50px rgba(2, 6, 23, 0.35);
+            backdrop-filter: blur(14px);
+        }
+
+        .stat-card {
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            background: linear-gradient(145deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.66));
+        }
+
+        .server-card {
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            background: rgba(15, 23, 42, 0.72);
+        }
+
+        .player-chip {
+            border: 1px solid rgba(125, 211, 252, 0.16);
+            background: rgba(15, 23, 42, 0.62);
+        }
+    </style>
+</head>
+<body class="text-base-content">
+    <div class="container mx-auto p-4 md:p-8 space-y-6">
+        <div class="navbar glass-panel rounded-box px-4 py-3 flex-wrap gap-4">
+            <div class="flex-1 min-w-[260px]">
+                <div>
+                    <a class="text-2xl font-bold tracking-[0.35em] uppercase text-slate-100">SpeedUP</a>
+                    <p class="text-xs uppercase tracking-[0.28em] text-slate-400 mt-1">Live dashboard</p>
+                </div>
+            </div>
+            <div class="flex-none flex items-center gap-2 flex-wrap justify-end">
+                <a href="/dashboard.html" class="btn btn-sm btn-primary">Dashboard</a>
+                <a href="/" class="btn btn-sm btn-outline">Server Control</a>
+                <button id="refresh-btn" class="btn btn-sm btn-outline">Refresh</button>
+                <span class="badge badge-outline badge-info px-3 py-3" id="connection-status">Updating</span>
+                <button id="logout-btn" class="btn btn-sm btn-outline btn-error">Logout</button>
+            </div>
+        </div>
+
+        <div class="glass-panel rounded-box p-5">
+            <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
+                <div>
+                    <h1 class="text-3xl font-semibold text-slate-100">Server and player overview</h1>
+                    <p class="text-slate-400 mt-2">Real-time dashboard for total population, per-server occupancy, and tracked MMR records from /srv/puckserver/UserData.</p>
+                </div>
+                <div class="text-sm text-slate-400">Auto refresh every 15 seconds</div>
+            </div>
+        </div>
+
+        <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="stat-card rounded-box p-5">
+                <div class="text-xs uppercase tracking-[0.24em] text-slate-400">Total Players Online</div>
+                <div id="total-online" class="text-4xl font-bold mt-3 text-sky-300">0</div>
+            </div>
+            <div class="stat-card rounded-box p-5">
+                <div class="text-xs uppercase tracking-[0.24em] text-slate-400">Tracked Servers</div>
+                <div id="tracked-servers" class="text-4xl font-bold mt-3 text-emerald-300">0</div>
+            </div>
+            <div class="stat-card rounded-box p-5">
+                <div class="text-xs uppercase tracking-[0.24em] text-slate-400">Tracked Players</div>
+                <div id="tracked-players" class="text-4xl font-bold mt-3 text-amber-300">0</div>
+            </div>
+            <div class="stat-card rounded-box p-5">
+                <div class="text-xs uppercase tracking-[0.24em] text-slate-400">Last Updated</div>
+                <div id="last-updated" class="text-2xl font-bold mt-3 text-slate-100">Waiting</div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+            <div class="glass-panel rounded-box p-5">
+                <div class="flex items-center justify-between gap-4 mb-4">
+                    <div>
+                        <h2 class="text-2xl font-semibold text-slate-100">Server Status</h2>
+                        <p class="text-sm text-slate-400">Name, occupancy, max players, service state, and optional live player list.</p>
+                    </div>
+                </div>
+                <div id="servers-grid" class="grid grid-cols-1 2xl:grid-cols-2 gap-4"></div>
+            </div>
+
+            <div class="glass-panel rounded-box p-5">
+                <div class="flex flex-col gap-3 mb-4">
+                    <div>
+                        <h2 class="text-2xl font-semibold text-slate-100">MMR Search</h2>
+                        <p class="text-sm text-slate-400">Browse players loaded from JSON data and sorted by MMR by default.</p>
+                    </div>
+                    <div class="flex flex-col md:flex-row gap-3">
+                        <input id="player-search" type="search" class="input input-bordered w-full" placeholder="Search steam ID" />
+                        <select id="player-sort" class="select select-bordered md:w-48">
+                            <option value="mmr">Sort by MMR</option>
+                            <option value="wins">Sort by wins</option>
+                            <option value="losses">Sort by losses</option>
+                            <option value="steamid">Sort by steam ID</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Steam ID</th>
+                                <th>MMR</th>
+                                <th>Wins</th>
+                                <th>Losses</th>
+                            </tr>
+                        </thead>
+                        <tbody id="players-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const totalOnlineElement = document.getElementById('total-online');
+            const trackedServersElement = document.getElementById('tracked-servers');
+            const trackedPlayersElement = document.getElementById('tracked-players');
+            const lastUpdatedElement = document.getElementById('last-updated');
+            const serversGrid = document.getElementById('servers-grid');
+            const playersTableBody = document.getElementById('players-table-body');
+            const playerSearch = document.getElementById('player-search');
+            const playerSort = document.getElementById('player-sort');
+            const refreshBtn = document.getElementById('refresh-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const connectionStatus = document.getElementById('connection-status');
+
+            const API_BASE_URL = '/api';
+            const pollIntervalMs = 15000;
+            const state = {
+                players: [],
+                servers: [],
+                totalOnlinePlayers: 0
+            };
+
+            const requestJSON = async (url) => {
+                const response = await fetch(url);
+                if (response.status === 403) {
+                    window.location.href = '/login.html';
+                    return null;
+                }
+                const payloadText = await response.text();
+                const payload = payloadText ? JSON.parse(payloadText) : null;
+                if (!response.ok) {
+                    throw new Error(payload && payload.message ? payload.message : 'Request failed');
+                }
+                return payload;
+            };
+
+            const api = {
+                getPlayersMMR: (sortBy) => requestJSON(`${API_BASE_URL}/players/mmr?sort=${encodeURIComponent(sortBy)}`),
+                getServersStatus: () => requestJSON(`${API_BASE_URL}/servers/status`)
+            };
+
+            const renderSummary = () => {
+                totalOnlineElement.textContent = state.totalOnlinePlayers;
+                trackedServersElement.textContent = state.servers.length;
+                trackedPlayersElement.textContent = state.players.length;
+                lastUpdatedElement.textContent = new Date().toLocaleTimeString();
+            };
+
+            const renderServers = () => {
+                serversGrid.innerHTML = '';
+
+                if (state.servers.length === 0) {
+                    serversGrid.innerHTML = '<div class="server-card rounded-box p-4 text-slate-400">No server configs were detected.</div>';
+                    return;
+                }
+
+                state.servers.forEach((server) => {
+                    const occupancy = `${server.playersOnline}/${server.maxPlayers || 0}`;
+                    const playersMarkup = (server.players || []).length > 0
+                        ? server.players.map((player) => {
+                            const detailParts = [];
+                            if (typeof player.mmr === 'number') {
+                                detailParts.push(`MMR ${player.mmr}`);
+                            }
+                            if (typeof player.wins === 'number' && typeof player.losses === 'number') {
+                                detailParts.push(`${player.wins}-${player.losses}`);
+                            }
+                            return `
+                                <div class="player-chip rounded-box px-3 py-2 text-sm">
+                                    <div class="font-medium text-slate-100">${player.name || player.steamId || 'Unknown player'}</div>
+                                    <div class="text-slate-400 text-xs">${player.steamId || detailParts.join(' | ') || 'No identifier'}</div>
+                                    ${detailParts.length > 0 ? `<div class="text-sky-300 text-xs mt-1">${detailParts.join(' | ')}</div>` : ''}
+                                </div>
+                            `;
+                        }).join('')
+                        : '<div class="text-sm text-slate-500">No live player list detected for this server yet.</div>';
+
+                    const card = document.createElement('div');
+                    card.className = 'server-card rounded-box p-4';
+                    card.innerHTML = `
+                        <div class="flex items-start justify-between gap-4 mb-4">
+                            <div>
+                                <div class="text-xs uppercase tracking-[0.24em] text-slate-400">Server ${server.serverNum}</div>
+                                <h3 class="text-xl font-semibold text-slate-100 mt-1">${server.serverName}</h3>
+                            </div>
+                            <span class="badge ${server.serviceStatus === 'active' ? 'badge-success' : server.serviceStatus === 'inactive' ? 'badge-warning' : 'badge-outline'}">${server.serviceStatus}</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mb-4">
+                            <div class="rounded-box bg-slate-900/40 p-3">
+                                <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Online</div>
+                                <div class="text-2xl font-bold text-sky-300 mt-1">${server.playersOnline}</div>
+                            </div>
+                            <div class="rounded-box bg-slate-900/40 p-3">
+                                <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Capacity</div>
+                                <div class="text-2xl font-bold text-emerald-300 mt-1">${occupancy}</div>
+                            </div>
+                        </div>
+                        <div class="space-y-2">${playersMarkup}</div>
+                    `;
+                    serversGrid.appendChild(card);
+                });
+            };
+
+            const renderPlayers = () => {
+                const searchTerm = playerSearch.value.trim().toLowerCase();
+                const filteredPlayers = state.players.filter((player) => player.steamId.toLowerCase().includes(searchTerm));
+
+                playersTableBody.innerHTML = '';
+
+                if (filteredPlayers.length === 0) {
+                    playersTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-slate-500 py-6">No players match the current filter.</td></tr>';
+                    return;
+                }
+
+                filteredPlayers.forEach((player) => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="font-mono text-xs md:text-sm">${player.steamId}</td>
+                        <td>${player.mmr}</td>
+                        <td>${player.wins}</td>
+                        <td>${player.losses}</td>
+                    `;
+                    playersTableBody.appendChild(row);
+                });
+            };
+
+            const refreshDashboard = async () => {
+                connectionStatus.textContent = 'Updating';
+                connectionStatus.className = 'badge badge-outline badge-info px-3 py-3';
+
+                try {
+                    const [players, serverStatus] = await Promise.all([
+                        api.getPlayersMMR(playerSort.value),
+                        api.getServersStatus()
+                    ]);
+
+                    if (!players || !serverStatus) {
+                        return;
+                    }
+
+                    state.players = players;
+                    state.servers = serverStatus.servers || [];
+                    state.totalOnlinePlayers = serverStatus.totalOnlinePlayers || 0;
+
+                    renderSummary();
+                    renderServers();
+                    renderPlayers();
+
+                    connectionStatus.textContent = 'Live';
+                    connectionStatus.className = 'badge badge-outline badge-success px-3 py-3';
+                } catch (error) {
+                    console.error('Dashboard refresh failed:', error);
+                    connectionStatus.textContent = 'Update Failed';
+                    connectionStatus.className = 'badge badge-outline badge-error px-3 py-3';
+                }
+            };
+
+            playerSearch.addEventListener('input', renderPlayers);
+            playerSort.addEventListener('change', refreshDashboard);
+            refreshBtn.addEventListener('click', refreshDashboard);
+
+            logoutBtn.addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/logout', { method: 'POST' });
+                    if (!response.ok) {
+                        throw new Error('Logout failed');
+                    }
+                    window.location.href = '/login.html';
+                } catch (error) {
+                    console.error('Logout failed:', error);
+                }
+            });
+
+            refreshDashboard();
+            window.setInterval(refreshDashboard, pollIntervalMs);
+        });
+    </script>
+</body>
+</html>
