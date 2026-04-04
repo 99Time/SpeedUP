@@ -608,12 +608,57 @@ func loadServerRuntimeData(serverNum string, mmrBySteamID map[string]PlayerMMRRe
 	return playersOnline, maxPlayers, players, foundOnlineCount || len(players) > 0
 }
 
+func isAuthenticatedSession(r *http.Request) bool {
+	session, _ := store.Get(r, sessionName)
+	auth, ok := session.Values["authenticated"].(bool)
+	return ok && auth
+}
+
+func configuredServerAPIToken() string {
+	for _, envName := range []string{"SPEEDUP_SERVER_API_TOKEN", "SPEEDUP_API_TOKEN", "PUCKERUP_API_TOKEN"} {
+		token := strings.TrimSpace(os.Getenv(envName))
+		if token != "" {
+			return token
+		}
+	}
+
+	return ""
+}
+
+func requestServerAPIToken(r *http.Request) string {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader != "" && len(authHeader) > len("Bearer ") && strings.EqualFold(authHeader[:len("Bearer ")], "Bearer ") {
+		return strings.TrimSpace(authHeader[len("Bearer "):])
+	}
+
+	return strings.TrimSpace(r.Header.Get("X-API-Key"))
+}
+
+func hasValidServerAPIToken(r *http.Request) bool {
+	configuredToken := configuredServerAPIToken()
+	if configuredToken == "" {
+		return false
+	}
+
+	requestToken := requestServerAPIToken(r)
+	return requestToken != "" && requestToken == configuredToken
+}
+
+func activityAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hasValidServerAPIToken(r) || isAuthenticatedSession(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	})
+}
+
 // --- Middleware for Authentication ---
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, _ := store.Get(r, sessionName)
-		auth, ok := session.Values["authenticated"].(bool)
-		if !ok || !auth {
+		if !isAuthenticatedSession(r) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
@@ -1008,6 +1053,7 @@ func main() {
 	r.PathPrefix("/login.html").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "login.html")
 	}))
+	r.Handle("/api/servers/activity", activityAuthMiddleware(http.HandlerFunc(serverActivityHandler))).Methods("GET")
 
 	// --- Protected routes ---
 	api := r.PathPrefix("/api").Subrouter()
@@ -1016,7 +1062,6 @@ func main() {
 	api.HandleFunc("/install", installHandler).Methods("POST")
 	api.HandleFunc("/players/mmr", playersMMRHandler).Methods("GET")
 	api.HandleFunc("/servers", createServerHandler).Methods("POST")
-	api.HandleFunc("/servers/activity", serverActivityHandler).Methods("GET")
 	api.HandleFunc("/servers/status", serversStatusHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", getServerConfigHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", updateServerConfigHandler).Methods("POST")
