@@ -116,6 +116,15 @@ type ServersStatusResponse struct {
 	Servers            []ServerStatus `json:"servers"`
 }
 
+type ServerActivity struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+type ServerActivityResponse struct {
+	Servers []ServerActivity `json:"servers"`
+}
+
 type serverDefinition struct {
 	Number string
 	Config ServerConfig
@@ -339,6 +348,14 @@ func getServiceStatus(serverNum string) string {
 	}
 
 	return status
+}
+
+func normalizeServerActivityStatus(serviceStatus string) string {
+	if strings.EqualFold(strings.TrimSpace(serviceStatus), "active") {
+		return "Active"
+	}
+
+	return "Inactive"
 }
 
 func loadPlayerMMRData() ([]PlayerMMRRecord, map[string]PlayerMMRRecord, error) {
@@ -823,6 +840,34 @@ func playersMMRHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(players)
 }
 
+func serverActivityHandler(w http.ResponseWriter, r *http.Request) {
+	servers, err := loadServerDefinitions()
+	if err != nil {
+		log.Printf("Failed to load server definitions for activity endpoint: %v", err)
+		http.Error(w, "Failed to load server configs", http.StatusInternalServerError)
+		return
+	}
+
+	response := ServerActivityResponse{
+		Servers: make([]ServerActivity, 0, len(servers)),
+	}
+
+	for _, server := range servers {
+		serverName := strings.TrimSpace(server.Config.Name)
+		if serverName == "" {
+			serverName = fmt.Sprintf("Server %s", server.Number)
+		}
+
+		response.Servers = append(response.Servers, ServerActivity{
+			Name:   serverName,
+			Status: normalizeServerActivityStatus(getServiceStatus(server.Number)),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func serversStatusHandler(w http.ResponseWriter, r *http.Request) {
 	servers, err := loadServerDefinitions()
 	if err != nil {
@@ -971,6 +1016,7 @@ func main() {
 	api.HandleFunc("/install", installHandler).Methods("POST")
 	api.HandleFunc("/players/mmr", playersMMRHandler).Methods("GET")
 	api.HandleFunc("/servers", createServerHandler).Methods("POST")
+	api.HandleFunc("/servers/activity", serverActivityHandler).Methods("GET")
 	api.HandleFunc("/servers/status", serversStatusHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", getServerConfigHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", updateServerConfigHandler).Methods("POST")
