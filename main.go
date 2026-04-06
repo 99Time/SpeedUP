@@ -870,6 +870,47 @@ func serverControlHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("Command '%s' executed for server %s.", reqBody.Action, serverNum)})
 }
 
+func controlAllServersHandler(w http.ResponseWriter, r *http.Request) {
+	var reqBody struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	action := strings.TrimSpace(strings.ToLower(reqBody.Action))
+	if action != "start" && action != "stop" && action != "restart" {
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	servers, err := loadServerDefinitions()
+	if err != nil {
+		log.Printf("Failed to load servers for bulk control: %v", err)
+		http.Error(w, "Failed to load server configs", http.StatusInternalServerError)
+		return
+	}
+
+	controlledServers := make([]string, 0, len(servers))
+	for _, server := range servers {
+		serviceName := fmt.Sprintf("puck@server%s", server.Number)
+		cmd := exec.Command("systemctl", action, serviceName)
+		stderr, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("Failed to run systemctl %s %s: %v\nOutput: %s", action, serviceName, err, string(stderr))
+			http.Error(w, fmt.Sprintf("Failed to %s %s: %s", action, serviceName, string(stderr)), http.StatusInternalServerError)
+			return
+		}
+		controlledServers = append(controlledServers, server.Number)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": fmt.Sprintf("Command '%s' executed for %d servers.", action, len(controlledServers)),
+	})
+}
+
 func playersMMRHandler(w http.ResponseWriter, r *http.Request) {
 	players, _, err := loadPlayerMMRData()
 	if err != nil {
@@ -1062,6 +1103,7 @@ func main() {
 	api.HandleFunc("/install", installHandler).Methods("POST")
 	api.HandleFunc("/players/mmr", playersMMRHandler).Methods("GET")
 	api.HandleFunc("/servers", createServerHandler).Methods("POST")
+	api.HandleFunc("/servers/control-all", controlAllServersHandler).Methods("POST")
 	api.HandleFunc("/servers/status", serversStatusHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", getServerConfigHandler).Methods("GET")
 	api.HandleFunc("/server/{serverNum}/config", updateServerConfigHandler).Methods("POST")
